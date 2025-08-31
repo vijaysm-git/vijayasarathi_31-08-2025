@@ -1,0 +1,212 @@
+@app.post("/initialize_database/", tags=["Setup"])
+async def initialize_database():
+    """Initialize database tables and load CSV data with chunked processing."""
+    try:
+        logger.info("Starting database initialization...")
+        
+        # Import the setup function from the first file
+        from database_setup import load_csv_data_optimized
+        
+        success = load_csv_data_optimized()
+        
+        if success:
+            return {
+                "message": "Database initialized successfully with chunked processing",
+                "status": "success",
+                "timestamp": datetime.now().isoformat()
+            }
+        else:
+            raise HTTPException(status_code=500, detail="Failed to initialize database")
+            
+    except Exception as e:
+        logger.error(f"Error in initialize_database endpoint: {e}")
+        raise HTTPException(status_code=500, detail=f"Database initialization failed: {str(e)}")
+
+
+
+        
+@app.get("/download_report/{report_id}/", tags=["Reports"])
+async def download_report(report_id: str):
+    """Download the completed report CSV file."""
+    try:
+        report_file_path = f"report_data/report_{report_id}.csv"
+        
+        if not os.path.exists(report_file_path):
+            with SessionLocal() as db:
+                report_status = db.query(ReportStatus).filter_by(report_id=report_id).first()
+            
+            if not report_status:
+                raise HTTPException(status_code=404, detail="Report not found")
+            else:
+                raise HTTPException(status_code=202, detail="Report is still being generated")
+        
+        return FileResponse(
+            path=report_file_path,
+            filename=f"store_monitoring_report_{report_id}.csv",
+            media_type="text/csv"
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error downloading report {report_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to download report")
+
+@app.get("/health/", tags=["Health"])
+async def health_check():
+    """Health check endpoint with database connectivity test."""
+    try:
+        # Test database connection with timeout
+        with engine.connect() as conn:
+            result = conn.execute(text("SELECT 1")).fetchone()
+        
+        # Get table row counts
+        table_info = {}
+        try:
+            with engine.connect() as conn:
+                tables = ['store_status', 'menu_hours', 'timezones', 'report_status']
+                for table in tables:
+                    try:
+                        count_result = conn.execute(text(f"SELECT COUNT(*) FROM {table}"))
+                        table_info[table] = count_result.fetchone()[0]
+                    except:
+                        table_info[table] = "table not found"
+        except:
+            table_info = {"error": "could not fetch table info"}
+        
+        return {
+            "status": "healthy",
+            "timestamp": datetime.now().isoformat(),
+            "database": "connected",
+            "table_info": table_info
+        }
+        
+    except Exception as e:
+        logger.error(f"Health check failed: {e}")
+        return {
+            "status": "unhealthy",
+            "timestamp": datetime.now().isoformat(),
+            "database": "disconnected",
+            "error": str(e)
+        }
+
+@app.get("/debug/database_schema/", tags=["Debug"])
+async def debug_database_schema():
+    """Get detailed database schema information."""
+    try:
+        with engine.connect() as conn:
+            schema_query = text("""
+                SELECT 
+                    table_name,
+                    column_name,
+                    data_type,
+                    is_nullable,
+                    column_default
+                FROM information_schema.columns 
+                WHERE table_schema = 'public' 
+                AND table_name IN ('store_status', 'menu_hours', 'timezones', 'report_status')
+                ORDER BY table_name, ordinal_position
+            """)
+            
+            result = conn.execute(schema_query)
+            schema_info = []
+            
+            for row in result:
+                schema_info.append({
+                    "table_name": row[0],
+                    "column_name": row[1], 
+                    "data_type": row[2],
+                    "is_nullable": row[3],
+                    "column_default": row[4]
+                })
+        
+        return {"database_schema": schema_info}
+        
+    except Exception as e:
+        logger.error(f"Error fetching schema: {e}")
+        return {"error": f"Failed to fetch database schema: {e}"}
+
+@app.get("/debug/sample_data/{table_name}/", tags=["Debug"])
+async def debug_sample_data(table_name: str, limit: int = 10):
+    """Get sample data from a specific table for debugging."""
+    valid_tables = ['store_status', 'menu_hours', 'timezones', 'report_status']
+    
+    if table_name not in valid_tables:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Invalid table name. Must be one of: {valid_tables}"
+        )
+    
+    try:
+        with engine.connect() as conn:
+            # Get sample data with proper ordering
+            if table_name == 'store_status':
+                query = text(f"SELECT * FROM {table_name} ORDER BY timestamp_utc DESC LIMIT {limit}")
+            else:
+                query = text(f"SELECT * FROM {table_name} LIMIT {limit}")
+                
+            result = conn.execute(query)
+            columns = result.keys()
+            rows = result.fetchall()
+            
+            sample_data = [dict(zip(columns, row)) for row in rows]
+            
+            # Get total count
+            count_result = conn.execute(text(f"SELECT COUNT(*) FROM {table_name}"))
+            total_count = count_result.fetchone()[0]
+            
+            return {
+                "table_name": table_name,
+                "total_rows": total_count,
+                "columns": list(columns),
+                "sample_data": sample_data,
+                "displayed_rows": len(sample_data)
+            }
+            
+    except Exception as e:
+        logger.error(f"Error fetching sample data from {table_name}: {e}")
+        return {"error": f"Failed to fetch sample data from {table_name}: {e}"}
+
+@app.get("/debug/store_analysis/{store_id}/", tags=["Debug"])
+async def debug_store_analysis(store_id: str):
+    """Analyze a specific store's data for debugging."""
+    try:
+        with engine.connect() as conn:
+            # Get store status data
+            status_query = text("""
+                SELECT COUNT(*) as poll_count,
+                       MIN(timestamp_utc) as earliest_poll,
+                       MAX(timestamp_utc) as latest_poll,
+                       COUNT(CASE WHEN status = true THEN 1 END) as active_polls,
+                       COUNT(CASE WHEN status = false THEN 1 END) as inactive_polls
+                FROM store_status 
+                WHERE store_id = :store_id
+            """)
+            
+            status_result = conn.execute(status_query, {"store_id": store_id}).fetchone()
+            
+            # Get menu hours
+            hours_query = text("SELECT * FROM menu_hours WHERE store_id = :store_id")
+            hours_result = conn.execute(hours_query, {"store_id": store_id}).fetchall()
+            
+            # Get timezone
+            tz_query = text("SELECT * FROM timezones WHERE store_id = :store_id")
+            tz_result = conn.execute(tz_query, {"store_id": store_id}).fetchone()
+            
+            return {
+                "store_id": store_id,
+                "status_data": {
+                    "total_polls": status_result[0] if status_result else 0,
+                    "earliest_poll": status_result[1].isoformat() if status_result and status_result[1] else None,
+                    "latest_poll": status_result[2].isoformat() if status_result and status_result[2] else None,
+                    "active_polls": status_result[3] if status_result else 0,
+                    "inactive_polls": status_result[4] if status_result else 0
+                },
+                "menu_hours": [dict(zip(['store_id', 'day_of_week', 'start_time_local', 'end_time_local'], row)) for row in hours_result],
+                "timezone": dict(zip(['store_id', 'timezone_str'], tz_result)) if tz_result else None
+            }
+            
+    except Exception as e:
+        logger.error(f"Error analyzing store {store_id}: {e}")
+        return {"error": f"Failed to analyze store {store_id}: {e}"}
+
