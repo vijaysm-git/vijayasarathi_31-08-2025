@@ -39,7 +39,7 @@ app = FastAPI(
 )
 
 # Database configuration using your Supabase credentials
-DATABASE_URL = 'postgresql://postgres.qypppoidgqujdtxgdols:9vDtwOWi761f9eKH@aws-1-ap-south-1.pooler.supabase.com:6543/postgres?sslmode=require'
+DATABASE_URL = 'postgresql://postgres.qypppoidgqujdtxgdols:LkGJh6VCk5SGWi45@aws-1-ap-south-1.pooler.supabase.com:6543/postgres?sslmode=require'
 
 # Create engine with optimizations for large datasets
 engine = create_engine(

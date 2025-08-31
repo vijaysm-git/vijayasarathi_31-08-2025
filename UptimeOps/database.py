@@ -7,12 +7,14 @@ import logging
 import os
 from typing import Iterator
 
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+
 # Database connection using your Supabase credentials
-DATABASE_URL = 'postgresql://postgres.qypppoidgqujdtxgdols:9vDtwOWi761f9eKH@aws-1-ap-south-1.pooler.supabase.com:6543/postgres?sslmode=require'
+DATABASE_URL = 'postgresql://postgres.qypppoidgqujdtxgdols:LkGJh6VCk5SGWi45@aws-1-ap-south-1.pooler.supabase.com:6543/postgres?sslmode=require'
 
 Base = declarative_base()
 
@@ -77,16 +79,16 @@ def create_tables_with_optimization(engine):
             for table in tables:
                 try:
                     conn.execute(text(f"ALTER TABLE {table} DISABLE ROW LEVEL SECURITY;"))
-                    logger.info(f"✅ RLS disabled for {table}")
+                    logger.info(f" RLS disabled for {table}")
                 except Exception as e:
-                    logger.warning(f"⚠️ Could not disable RLS for {table}: {e}")
+                    logger.warning(f" Could not disable RLS for {table}: {e}")
             
             conn.commit()
         
-        logger.info("✅ Tables created successfully with optimizations")
+        logger.info("Tables created successfully with optimizations")
         
     except Exception as e:
-        logger.error(f"❌ Error creating tables: {e}")
+        logger.error(f" Error creating tables: {e}")
         raise
 
 def convert_to_datetime(timestamp_str):
@@ -104,28 +106,28 @@ def convert_to_datetime(timestamp_str):
         # Return naive datetime in UTC (PostgreSQL will treat as UTC)
         return timestamp_dt.replace(tzinfo=None)
     except Exception as e:
-        logger.warning(f"❌ Error converting timestamp '{timestamp_str}': {e}")
+        logger.warning(f" Error converting timestamp '{timestamp_str}': {e}")
         return None
 
 def process_csv_in_chunks(csv_path: str, chunk_size: int = 10000) -> Iterator[pd.DataFrame]:
     """Process CSV file in chunks to handle large files efficiently."""
-    logger.info(f"📂 Processing {csv_path} in chunks of {chunk_size}")
+    logger.info(f" Processing {csv_path} in chunks of {chunk_size}")
     
     try:
         # First, peek at the file to understand its structure
         sample_df = pd.read_csv(csv_path, nrows=5)
-        logger.info(f"📋 Columns in {csv_path}: {list(sample_df.columns)}")
-        logger.info(f"📋 Sample data:\n{sample_df.head()}")
+        logger.info(f" Columns in {csv_path}: {list(sample_df.columns)}")
+        logger.info(f" Sample data:\n{sample_df.head()}")
         
         # Read the file in chunks
         chunk_reader = pd.read_csv(csv_path, chunksize=chunk_size)
         
         for i, chunk in enumerate(chunk_reader):
-            logger.info(f"📊 Processing chunk {i+1} with {len(chunk)} rows")
+            logger.info(f" Processing chunk {i+1} with {len(chunk)} rows")
             yield chunk
             
     except Exception as e:
-        logger.error(f"❌ Error reading CSV {csv_path}: {e}")
+        logger.error(f" Error reading CSV {csv_path}: {e}")
         raise
 
 def preprocess_store_status_chunk(chunk: pd.DataFrame) -> pd.DataFrame:
@@ -223,7 +225,7 @@ def save_chunk_to_db(chunk: pd.DataFrame, table_name: str, engine, is_first_chun
     """Save a chunk of data to the database."""
     try:
         if chunk.empty:
-            logger.warning(f"⚠️ Empty chunk for {table_name}")
+            logger.warning(f" Empty chunk for {table_name}")
             return
         
         # For first chunk, replace the table; for subsequent chunks, append
@@ -238,10 +240,10 @@ def save_chunk_to_db(chunk: pd.DataFrame, table_name: str, engine, is_first_chun
             chunksize=1000
         )
         
-        logger.info(f"✅ Saved {len(chunk)} rows to {table_name} ({'replaced' if is_first_chunk else 'appended'})")
+        logger.info(f"Saved {len(chunk)} rows to {table_name} ({'replaced' if is_first_chunk else 'appended'})")
         
     except Exception as e:
-        logger.error(f"❌ Error saving chunk to {table_name}: {e}")
+        logger.error(f" Error saving chunk to {table_name}: {e}")
         raise
 
 def load_csv_data_optimized():
@@ -288,10 +290,10 @@ def load_csv_data_optimized():
             preprocess_func = config['preprocess_func']
             
             if not os.path.exists(csv_path):
-                logger.warning(f"⚠️ CSV file not found: {csv_path}")
+                logger.warning(f" CSV file not found: {csv_path}")
                 continue
             
-            logger.info(f"🚀 Starting to load {csv_path} into {table_name}")
+            logger.info(f"Starting to load {csv_path} into {table_name}")
             
             is_first_chunk = True
             total_rows = 0
@@ -307,29 +309,29 @@ def load_csv_data_optimized():
                         total_rows += len(processed_chunk)
                         is_first_chunk = False
                     
-                logger.info(f"🎉 Successfully loaded {total_rows} total rows into {table_name}")
+                logger.info(f" Successfully loaded {total_rows} total rows into {table_name}")
                 
             except Exception as e:
-                logger.error(f"❌ Error processing {csv_path}: {e}")
+                logger.error(f"Error processing {csv_path}: {e}")
                 continue
         
         # Verify data was loaded
-        logger.info("🔍 Verifying data load...")
+        logger.info("Verifying data load...")
         with engine.connect() as conn:
             for config in csv_configs:
                 table_name = config['table']
                 try:
                     result = conn.execute(text(f"SELECT COUNT(*) FROM {table_name}"))
                     count = result.fetchone()[0]
-                    logger.info(f"📊 {table_name}: {count:,} rows")
+                    logger.info(f" {table_name}: {count:,} rows")
                 except Exception as e:
-                    logger.error(f"❌ Error counting {table_name}: {e}")
+                    logger.error(f" Error counting {table_name}: {e}")
         
-        logger.info("🎉 Database setup completed successfully!")
+        logger.info("Database setup completed successfully!")
         return True
         
     except Exception as e:
-        logger.error(f"❌ Failed to setup database: {e}")
+        logger.error(f" Failed to setup database: {e}")
         import traceback
         logger.error(f"Traceback: {traceback.format_exc()}")
         return False
@@ -339,12 +341,12 @@ def main():
     try:
         success = load_csv_data_optimized()
         if success:
-            logger.info("✅ All data loaded successfully!")
+            logger.info(" All data loaded successfully!")
         else:
-            logger.error("❌ Data loading failed!")
+            logger.error(" Data loading failed!")
             
     except Exception as e:
-        logger.error(f"❌ Main function failed: {e}")
+        logger.error(f" Main function failed: {e}")
 
 if __name__ == "__main__":
     main()
